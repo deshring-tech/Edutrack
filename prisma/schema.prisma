@@ -261,6 +261,9 @@ model Assessment {
   createdBy User              @relation("AssessmentAuthor", fields: [createdById], references: [id])
   scores    AssessmentScore[]
 
+  // Saving the same test twice corrects it instead of creating a duplicate
+  // that quietly drags the class average down.
+  @@unique([batchId, title, assessedOn])
   @@index([batchId, assessedOn])
 }
 

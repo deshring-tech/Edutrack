@@ -14,10 +14,8 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
-  experimental: {
-    // Prisma must not be bundled into the server runtime.
-    serverComponentsExternalPackages: ["@prisma/client", ".prisma/client"],
-  },
+  // Prisma ships native query engines and must not be bundled by webpack.
+  serverExternalPackages: ["@prisma/client", ".prisma/client"],
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

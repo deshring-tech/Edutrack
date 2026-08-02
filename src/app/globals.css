@@ -1,0 +1,115 @@
+@import "tailwindcss";
+
+/* ============================================================================
+   MODULE: Design tokens
+   Purpose        One definition per colour, so a brand change is one edit.
+   Responsibility Tokens and a handful of primitives. Component styling belongs
+                  in the component.
+
+   The palette is inherited from the prototype on purpose. Parents in this
+   market live in WhatsApp; a familiar green chat surface is why the parent app
+   needs no explanation. That is a product decision, not a default.
+   ============================================================================ */
+
+@theme {
+  /* Brand */
+  --color-brand-900: #075e54;
+  --color-brand-800: #0b6b60;
+  --color-brand-700: #128c7e;
+  --color-brand-500: #25d366;
+  --color-brand-100: #e8f5e9;
+
+  /* Surfaces */
+  --color-ink: #15302c;
+  --color-canvas: #fbfaf7;
+  --color-panel: #f7f4ef;
+  --color-chat: #ece5dd;
+  --color-bubble: #d9fdd3;
+  --color-hairline: #e8e4dc;
+
+  /* Entry kinds — each maps to one timeline category */
+  --color-kind-attendance: #1e88e5;
+  --color-kind-homework: #43a047;
+  --color-kind-assignment: #3949ab;
+  --color-kind-assessment: #00897b;
+  --color-kind-engagement: #fb8c00;
+  --color-kind-note: #8e24aa;
+
+  /* Status */
+  --color-status-ontrack: #43a047;
+  --color-status-watch: #fb8c00;
+  --color-status-risk: #e53935;
+
+  --font-display: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-hanken), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* ---------------------------------------------------------------- base ---- */
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+  Visible focus for keyboard users on every interactive element.
+  The prototype had none, which made the whole app unusable without a mouse.
+*/
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-brand-700);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Respect users who have asked the OS to reduce motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------------------------------------------------------- primitives ---- */
+
+@utility field-input {
+  width: 100%;
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  background: #fff;
+  color: var(--color-ink);
+  outline: none;
+}
+
+@utility card {
+  background: #fff;
+  border: 1px solid var(--color-hairline);
+  border-radius: 16px;
+}
+
+/* WhatsApp-style doodle backdrop for the timeline surface. */
+@utility chat-surface {
+  background-color: var(--color-chat);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='%23000000' stroke-opacity='0.03' stroke-width='2'%3E%3Ccircle cx='20' cy='20' r='8'/%3E%3Cpath d='M70 30 l12 0 0 12'/%3E%3Crect x='80' y='75' width='16' height='16' rx='3'/%3E%3Cpath d='M25 85 q10 -12 22 0'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* Screen-reader-only text that stays focusable (skip links). */
+@utility sr-only-focusable {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
