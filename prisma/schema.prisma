@@ -1,0 +1,381 @@
+// ============================================================================
+// MODULE: Persistence schema
+//
+// Purpose        Single source of truth for EduTrack's relational model.
+// Responsibility Model a multi-tenant tuition centre: people, batches, the
+//                things teachers log, the timeline parents read, and the
+//                outbox that notifies them.
+// Dependencies   Prisma 6, SQLite (dev) / PostgreSQL (production).
+//
+// DESIGN NOTES
+//  1. Tenancy. Every root record carries `centreId`. No query may run without
+//     it; `src/lib/auth/rbac.ts` is the only place allowed to derive it.
+//  2. Enums are modelled as `String` because SQLite has no native enum type.
+//     The allowed values live in `src/domain/enums.ts` and are validated with
+//     Zod at every boundary. Promoting them to real Postgres enums later is a
+//     mechanical migration.
+//  3. Idempotency. Every "log" table has a natural unique key so re-submitting
+//     a batch form updates rather than duplicates. TimelineEntry is keyed by
+//     (sourceType, sourceId, studentId) so fan-out can safely be replayed.
+//  4. Engagement is event-sourced (EngagementLog) rather than a mutable score,
+//     so the number is always explainable to a parent who asks "why?".
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  // Local development uses SQLite so the project runs with zero infrastructure.
+  // For production switch to `postgresql` — see docs/DEPLOYMENT.md.
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------- tenancy --
+
+model Centre {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  plan      String   @default("CENTRE")
+  seatLimit Int      @default(150)
+  timezone  String   @default("Asia/Kolkata")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users         User[]
+  students      Student[]
+  batches       Batch[]
+  timeline      TimelineEntry[]
+  notifications NotificationOutbox[]
+  auditLogs     AuditLog[]
+}
+
+// ----------------------------------------------------------------- people --
+
+model User {
+  id           String    @id @default(cuid())
+  centreId     String
+  email        String    @unique
+  passwordHash String
+  fullName     String
+  role         String // OWNER | TEACHER | PARENT — see domain/enums.ts
+  phone        String?
+  avatarColor  String    @default("#128C7E")
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  centre Centre @relation(fields: [centreId], references: [id], onDelete: Cascade)
+
+  children           ParentLink[]
+  batchesTaught      Batch[]              @relation("BatchTeacher")
+  sessionsRecorded   ClassSession[]       @relation("SessionRecorder")
+  homeworkRecorded   HomeworkRecord[]     @relation("HomeworkRecorder")
+  assignmentsCreated Assignment[]         @relation("AssignmentAuthor")
+  assessmentsCreated Assessment[]         @relation("AssessmentAuthor")
+  engagementLogged   EngagementLog[]      @relation("EngagementAuthor")
+  timelineAuthored   TimelineEntry[]      @relation("TimelineAuthor")
+  timelineAcked      TimelineEntry[]      @relation("TimelineAcknowledger")
+  notifications      NotificationOutbox[] @relation("NotificationRecipient")
+  auditLogs          AuditLog[]           @relation("AuditActor")
+
+  @@index([centreId, role])
+}
+
+model Student {
+  id          String   @id @default(cuid())
+  centreId    String
+  fullName    String
+  avatarColor String   @default("#7E57C2")
+  gradeLabel  String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  centre Centre @relation(fields: [centreId], references: [id], onDelete: Cascade)
+
+  guardians     ParentLink[]
+  enrollments   Enrollment[]
+  attendance    AttendanceRecord[]
+  homework      HomeworkRecord[]
+  scores        AssessmentScore[]
+  engagement    EngagementLog[]
+  timeline      TimelineEntry[]
+  notifications NotificationOutbox[]
+
+  @@index([centreId, isActive])
+}
+
+/// Links a parent account to a child. The ONLY thing that authorises a parent
+/// to read a student's record.
+model ParentLink {
+  id        String   @id @default(cuid())
+  parentId  String
+  studentId String
+  relation  String   @default("GUARDIAN")
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  parent  User    @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([parentId, studentId])
+  @@index([studentId])
+}
+
+// ---------------------------------------------------------------- classes --
+
+model Batch {
+  id         String   @id @default(cuid())
+  centreId   String
+  name       String
+  subject    String
+  gradeLabel String
+  colorHex   String   @default("#7E57C2")
+  teacherId  String
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  centre  Centre @relation(fields: [centreId], references: [id], onDelete: Cascade)
+  teacher User   @relation("BatchTeacher", fields: [teacherId], references: [id])
+
+  enrollments Enrollment[]
+  sessions    ClassSession[]
+  assignments Assignment[]
+  homework    HomeworkRecord[]
+  assessments Assessment[]
+  engagement  EngagementLog[]
+  timeline    TimelineEntry[]
+
+  @@index([centreId, isActive])
+  @@index([teacherId])
+}
+
+model Enrollment {
+  id        String    @id @default(cuid())
+  batchId   String
+  studentId String
+  joinedAt  DateTime  @default(now())
+  leftAt    DateTime?
+  isActive  Boolean   @default(true)
+
+  batch   Batch   @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([batchId, studentId])
+  @@index([studentId, isActive])
+}
+
+// -------------------------------------------------------------- teaching ---
+
+/// One dated meeting of a batch. Attendance hangs off this so a centre can
+/// answer "was class held that day?" independently of "who showed up?".
+model ClassSession {
+  id           String   @id @default(cuid())
+  batchId      String
+  sessionDate  DateTime
+  note         String?
+  recordedById String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  batch      Batch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  recordedBy User  @relation("SessionRecorder", fields: [recordedById], references: [id])
+
+  attendance AttendanceRecord[]
+
+  @@unique([batchId, sessionDate])
+  @@index([batchId, sessionDate])
+}
+
+model AttendanceRecord {
+  id        String   @id @default(cuid())
+  sessionId String
+  studentId String
+  status    String // PRESENT | ABSENT | LATE | EXCUSED
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  session ClassSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  student Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, studentId])
+  @@index([studentId])
+}
+
+model Assignment {
+  id             String    @id @default(cuid())
+  batchId        String
+  title          String
+  description    String?
+  dueDate        DateTime?
+  attachmentName String?
+  createdById    String
+  createdAt      DateTime  @default(now())
+
+  batch     Batch            @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  createdBy User             @relation("AssignmentAuthor", fields: [createdById], references: [id])
+  records   HomeworkRecord[]
+
+  @@index([batchId, createdAt])
+}
+
+/// One homework verdict per student, per batch, per day. Deliberately keyed by
+/// day rather than by assignment: tuition centres check "did they do today's
+/// work?", and the day key is what makes batch logging idempotent.
+model HomeworkRecord {
+  id           String   @id @default(cuid())
+  batchId      String
+  studentId    String
+  assignmentId String?
+  recordedOn   DateTime
+  status       String // DONE | PARTIAL | MISSING
+  recordedById String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  batch      Batch       @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  student    Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  assignment Assignment? @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+  recordedBy User        @relation("HomeworkRecorder", fields: [recordedById], references: [id])
+
+  @@unique([batchId, studentId, recordedOn])
+  @@index([studentId, recordedOn])
+}
+
+model Assessment {
+  id          String   @id @default(cuid())
+  batchId     String
+  title       String
+  maxScore    Float
+  assessedOn  DateTime
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  batch     Batch             @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  createdBy User              @relation("AssessmentAuthor", fields: [createdById], references: [id])
+  scores    AssessmentScore[]
+
+  @@index([batchId, assessedOn])
+}
+
+model AssessmentScore {
+  id           String   @id @default(cuid())
+  assessmentId String
+  studentId    String
+  score        Float
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  assessment Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  student    Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([assessmentId, studentId])
+  @@index([studentId])
+}
+
+/// Engagement is a stream of small signed observations, never a stored score.
+/// The score shown in the UI is derived in `domain/metrics.ts`.
+model EngagementLog {
+  id         String   @id @default(cuid())
+  studentId  String
+  batchId    String?
+  delta      Int
+  note       String?
+  authorId   String
+  occurredAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  batch   Batch?  @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  author  User    @relation("EngagementAuthor", fields: [authorId], references: [id])
+
+  @@index([studentId, occurredAt])
+}
+
+// -------------------------------------------------------- parent-facing ----
+
+/// The single feed a parent reads. Every teacher action fans out into exactly
+/// one entry per affected student. `sourceType`+`sourceId`+`studentId` is the
+/// idempotency key that makes re-saving a batch safe.
+model TimelineEntry {
+  id                String    @id @default(cuid())
+  centreId          String
+  studentId         String
+  batchId           String?
+  kind              String // ATTENDANCE | HOMEWORK | ASSIGNMENT | ASSESSMENT | ENGAGEMENT | NOTE
+  body              String
+  authorId          String
+  occurredAt        DateTime  @default(now())
+  sourceType        String
+  sourceId          String
+  acknowledgedAt    DateTime?
+  acknowledgedById  String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  centre         Centre               @relation(fields: [centreId], references: [id], onDelete: Cascade)
+  student        Student              @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  batch          Batch?               @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  author         User                 @relation("TimelineAuthor", fields: [authorId], references: [id])
+  acknowledgedBy User?                @relation("TimelineAcknowledger", fields: [acknowledgedById], references: [id])
+  notifications  NotificationOutbox[]
+
+  @@unique([sourceType, sourceId, studentId])
+  @@index([studentId, occurredAt])
+  @@index([centreId, createdAt])
+}
+
+/// Transactional outbox. Writing a timeline entry and queueing its notification
+/// happen in the SAME transaction, so a parent can never miss an update because
+/// a third-party API was down. Delivery is a separate, retryable concern.
+model NotificationOutbox {
+  id              String    @id @default(cuid())
+  centreId        String
+  recipientId     String
+  studentId       String?
+  timelineEntryId String?
+  channel         String // CONSOLE | WEBHOOK | WHATSAPP | EMAIL
+  payload         String // JSON string — SQLite has no native JSON column
+  status          String    @default("PENDING") // PENDING | SENT | FAILED | DEAD
+  attempts        Int       @default(0)
+  lastError       String?
+  availableAt     DateTime  @default(now())
+  sentAt          DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  centre        Centre         @relation(fields: [centreId], references: [id], onDelete: Cascade)
+  recipient     User           @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  student       Student?       @relation(fields: [studentId], references: [id], onDelete: SetNull)
+  timelineEntry TimelineEntry? @relation(fields: [timelineEntryId], references: [id], onDelete: SetNull)
+
+  @@index([status, availableAt])
+  @@index([centreId, createdAt])
+}
+
+// ------------------------------------------------------------------ audit --
+
+/// Append-only record of who changed what. Children's data is regulated
+/// (India DPDP Act 2023); "we don't know who edited that mark" is not an
+/// answer a centre can give a parent.
+model AuditLog {
+  id         String   @id @default(cuid())
+  centreId   String
+  actorId    String?
+  action     String
+  targetType String
+  targetId   String
+  metadata   String?
+  createdAt  DateTime @default(now())
+
+  centre Centre @relation(fields: [centreId], references: [id], onDelete: Cascade)
+  actor  User?  @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([centreId, createdAt])
+}
