@@ -7,12 +7,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import {
-  burnEquivalentWork,
-  hashPassword,
-  verifyPassword,
-  PASSWORD_MIN_LENGTH,
-} from "@/lib/auth/password";
+import { burnEquivalentWork, hashPassword, verifyPassword } from "@/lib/auth/password";
+import { PASSWORD_MIN_LENGTH } from "@/domain/password-policy";
 
 const PASSWORD = "correct-horse-battery";
 

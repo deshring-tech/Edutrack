@@ -17,6 +17,7 @@
 
 import { useFormStatus } from "react-dom";
 import { AlertCircle, Loader2 } from "lucide-react";
+import type { ActionState } from "@/server/action-result";
 
 interface SubmitButtonProps {
   children: React.ReactNode;
@@ -68,6 +69,28 @@ export function FormError({ message }: { message?: string | null }) {
       <AlertCircle size={15} className="mt-0.5 shrink-0" aria-hidden="true" />
       <span>{message}</span>
     </div>
+  );
+}
+
+/**
+ * Renders whichever outcome an action returned.
+ *
+ * Success messages here can carry a temporary password an owner must copy, so
+ * the banner is deliberately persistent rather than a toast that disappears
+ * after three seconds.
+ */
+export function ActionBanner({ state }: { state: ActionState }) {
+  if (state.status === "idle" || !state.message) return null;
+
+  if (state.status === "error") return <FormError message={state.message} />;
+
+  return (
+    <p
+      role="status"
+      className="rounded-lg bg-brand-100 px-3 py-2 text-[12.5px] font-medium text-[color:var(--color-status-ontrack)]"
+    >
+      {state.message}
+    </p>
   );
 }
 

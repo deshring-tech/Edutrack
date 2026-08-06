@@ -36,9 +36,14 @@ function readJsonField<T>(formData: FormData, field: string): T {
   }
 }
 
+/** Regular plural. Every count here is data-driven, so "1 students" is reachable. */
+function pluralise(count: number, noun: string): string {
+  return `${count} ${count === 1 ? noun : `${noun}s`}`;
+}
+
 function pluraliseParents(count: number): string {
   if (count === 0) return "no new notifications";
-  return `${count} ${count === 1 ? "parent" : "parents"} notified`;
+  return `${pluralise(count, "parent")} notified`;
 }
 
 export async function saveAttendanceAction(
@@ -57,7 +62,7 @@ export async function saveAttendanceAction(
     revalidatePath(`/app/batches/${String(formData.get("batchId"))}`);
     revalidatePath("/app/dashboard");
 
-    return `Attendance saved for ${result.studentsMarked} students · ${pluraliseParents(result.notificationsQueued)}`;
+    return `Attendance saved for ${pluralise(result.studentsMarked, "student")} · ${pluraliseParents(result.notificationsQueued)}`;
   });
 }
 
@@ -77,7 +82,7 @@ export async function saveHomeworkAction(
     revalidatePath(`/app/batches/${String(formData.get("batchId"))}`);
     revalidatePath("/app/dashboard");
 
-    return `Homework saved for ${result.studentsRecorded} students · ${pluraliseParents(result.notificationsQueued)}`;
+    return `Homework saved for ${pluralise(result.studentsRecorded, "student")} · ${pluraliseParents(result.notificationsQueued)}`;
   });
 }
 
@@ -102,7 +107,7 @@ export async function saveAssessmentAction(
     const average =
       result.classAveragePercent === null ? "" : ` · class average ${result.classAveragePercent}%`;
 
-    return `Results saved for ${result.scoresRecorded} students${average} · ${pluraliseParents(result.notificationsQueued)}`;
+    return `Results saved for ${pluralise(result.scoresRecorded, "student")}${average} · ${pluraliseParents(result.notificationsQueued)}`;
   });
 }
 
@@ -127,6 +132,6 @@ export async function postAssignmentAction(
 
     revalidatePath(`/app/batches/${String(formData.get("batchId"))}`);
 
-    return `Assignment posted to ${result.studentsNotified} students · ${pluraliseParents(result.notificationsQueued)}`;
+    return `Assignment posted to ${pluralise(result.studentsNotified, "student")} · ${pluraliseParents(result.notificationsQueued)}`;
   });
 }

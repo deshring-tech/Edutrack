@@ -19,6 +19,7 @@
 
 import { randomBytes, scrypt, timingSafeEqual, type ScryptOptions } from "node:crypto";
 import { promisify } from "node:util";
+import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from "@/domain/password-policy";
 
 /**
  * `promisify` infers scrypt's 3-argument overload and drops the options
@@ -43,8 +44,9 @@ const COST = { N: 32_768, r: 8, p: 1 } as const;
 /** scrypt needs roughly 128 * N * r bytes; give it headroom or it throws. */
 const MAX_MEMORY = 64 * 1024 * 1024;
 
-export const PASSWORD_MIN_LENGTH = 10;
-export const PASSWORD_MAX_LENGTH = 200;
+// Deliberately imported, not re-exported: everything else (forms, schemas,
+// tests) reads the policy straight from `@/domain/password-policy`, so there is
+// only one import path for it and no way to pull node:crypto into the browser.
 
 /**
  * Unicode-normalise so a password typed on a phone keyboard and the same

@@ -45,7 +45,14 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         </div>
       )}
 
-      <Link href="/" className="text-[12.5px] font-semibold text-brand-700 hover:underline">
+      <p className="text-[12.5px] text-gray-500">
+        New centre?{" "}
+        <Link href="/signup" className="font-semibold text-brand-700 hover:underline">
+          Create one
+        </Link>
+      </p>
+
+      <Link href="/" className="text-[12.5px] text-gray-400 hover:underline">
         ← Back to home
       </Link>
     </main>

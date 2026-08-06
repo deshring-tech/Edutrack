@@ -18,6 +18,8 @@ import { SESSION_COOKIE_NAME, verifySessionToken } from "@/lib/auth/token";
 
 const PROTECTED_PREFIX = "/app";
 const LOGIN_PATH = "/login";
+/** Pages that make no sense once you are signed in. */
+const SIGNED_OUT_ONLY = new Set([LOGIN_PATH, "/signup"]);
 
 export async function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
@@ -39,7 +41,7 @@ export async function middleware(request: NextRequest) {
     return response;
   }
 
-  if (pathname === LOGIN_PATH && session) {
+  if (SIGNED_OUT_ONLY.has(pathname) && session) {
     return NextResponse.redirect(new URL("/app", request.url));
   }
 
@@ -47,5 +49,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/app/:path*", "/login"],
+  matcher: ["/app/:path*", "/login", "/signup"],
 };

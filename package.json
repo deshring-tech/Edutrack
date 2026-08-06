@@ -7,6 +7,7 @@
     "node": ">=20.11"
   },
   "scripts": {
+    "setup": "node scripts/bootstrap.mjs",
     "dev": "next dev",
     "build": "prisma generate && next build",
     "start": "next start",
@@ -18,13 +19,10 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
-    "db:reset": "prisma migrate reset --force",
+    "db:reset": "prisma migrate reset --force --skip-seed && npm run db:seed",
     "db:studio": "prisma studio",
     "notifications:dispatch": "tsx scripts/dispatch-notifications.ts",
     "postinstall": "prisma generate"
-  },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.2.1",

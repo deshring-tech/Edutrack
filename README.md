@@ -10,16 +10,30 @@ sees it roll up. Parents read updates in a format they already understand.
 
 ## Quick start
 
+### Windows — one click
+
+Double-click **`start-edutrack.bat`**.
+
+It installs dependencies, generates `.env` with fresh secrets, migrates the
+database, loads demo data on first run, builds, and opens your browser once the
+server is actually responding. Safe to run again any time — it never overwrites
+existing configuration or data.
+
+Use **`dev-edutrack.bat`** instead if you are changing code and want hot reload.
+
+### Any platform
+
 ```bash
 npm install
-cp .env.example .env    # then set SESSION_SECRET and CRON_SECRET
-npm run db:migrate
-npm run db:seed
+npm run setup     # .env, migrations, and demo data if the database is empty
 npm run dev
 ```
 
-Open <http://localhost:3000> and sign in. Seeded accounts (password
-`demo-password-123`):
+`npm run setup` is the same bootstrap the launcher uses, so both paths end up in
+an identical state.
+
+Open <http://localhost:3000>. Either create your own centre from the landing
+page, or sign in with a seeded account (password `demo-password-123`):
 
 | Role | Email | Sees |
 |---|---|---|
@@ -38,6 +52,7 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 
 | Command | What it does |
 |---|---|
+| `npm run setup` | First-run bootstrap: `.env`, migrations, seed if empty |
 | `npm run dev` | Development server |
 | `npm run build` | Production build (runs `prisma generate` first) |
 | `npm start` | Serve the production build |
@@ -51,6 +66,25 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 | `npm run notifications:dispatch` | Drain the notification outbox once |
 
 ---
+
+## Setting up a real centre
+
+Nothing needs seeding. From the landing page, **Create centre** registers a
+tenant and its first owner, then drops you into administration:
+
+1. **Staff** — add teachers. Each gets a generated temporary password, shown
+   once, which they change under Settings.
+2. **Batches** — create a batch and assign it to one teacher. Only that teacher
+   (and owners) can log against it.
+3. **Students** — add students, optionally with a guardian and a batch in the
+   same step. A student with no guardian generates records nobody can see, so
+   the form says so.
+4. Teachers now see their batches and can start logging; guardians see their own
+   children immediately.
+
+Withdrawing a student frees a plan seat and keeps their history. Deactivating a
+teacher is refused while they still own live batches, so no batch is ever left
+unloggable.
 
 ## Architecture
 
@@ -149,9 +183,12 @@ schedule `GET /api/cron/notifications` with a `Bearer $CRON_SECRET` header.
 npm test
 ```
 
-91 tests covering the domain layer and the security-critical primitives —
-metrics, risk rules, message composition, date keys, password hashing, and the
-authorization boundaries (which run against the seeded database).
+104 tests covering the domain layer and the security-critical primitives —
+metrics, risk rules, message composition, date keys, password hashing, the
+authorization boundaries, and the administration rules (seat limits, email
+uniqueness, role gates, password change). The last two groups run against a real
+database; the administration suite creates its own throwaway centre and deletes
+it afterwards, so it leaves no trace.
 
 The suite deliberately targets the places where a regression is silent. A wrong
 percentage looks plausible; a broken authorization rule looks like nothing at
@@ -183,11 +220,15 @@ Deliberately **not** built yet, and why:
 - **File uploads.** Assignments record an attachment *name*. Storing files for
   minors needs a retention policy, scanning and signed URLs — worth building,
   not worth faking.
-- **Self-service onboarding.** Centres, staff and enrollments are seeded or
-  created directly. The admin CRUD is the obvious next increment.
+- **Email.** There is no transactional email, so staff and guardian accounts are
+  created with a generated temporary password the owner hands over. Invite links
+  and password reset both need email first.
 - **Session revocation.** Sessions are stateless JWTs and cannot be revoked
   before expiry. Adding a `sessionVersion` column to `User` and asserting it in
   `getSession` is the fix; no call site changes.
+- **Editing after creation.** Students, staff and batches can be created and
+  deactivated, but not renamed. Straightforward to add; not yet needed to run a
+  centre end to end.
 
 `docs/legacy/EduTrackMVP.jsx` is the original single-file clickable prototype,
 kept for reference.

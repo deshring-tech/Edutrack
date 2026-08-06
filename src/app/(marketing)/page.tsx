@@ -69,16 +69,16 @@ export default function LandingPage() {
 
         <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
           <Link
-            href="/login"
+            href="/signup"
             className="inline-flex items-center gap-2 rounded-xl bg-brand-900 px-5 py-3 text-sm font-semibold text-white hover:bg-brand-800"
           >
-            Sign in to your centre <ArrowRight size={16} aria-hidden="true" />
+            Create your centre <ArrowRight size={16} aria-hidden="true" />
           </Link>
           <Link
-            href="/plans"
+            href="/login"
             className="rounded-xl border border-hairline bg-white px-5 py-3 text-sm font-semibold text-ink hover:shadow-sm"
           >
-            See plans
+            Sign in
           </Link>
         </div>
 

@@ -13,7 +13,14 @@
 
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { GraduationCap, LayoutDashboard, LogOut, Users, UserCheck } from "lucide-react";
+import {
+  GraduationCap,
+  LayoutDashboard,
+  LogOut,
+  Settings,
+  Users,
+  UserCheck,
+} from "lucide-react";
 import { getSession } from "@/lib/auth/session";
 import { ROLE, type Role } from "@/domain/enums";
 import { logoutAction } from "@/app/(auth)/login/actions";
@@ -43,6 +50,12 @@ const NAV_ITEMS: NavItem[] = [
     label: "My children",
     icon: Users,
     roles: [ROLE.PARENT],
+  },
+  {
+    href: "/app/admin/staff",
+    label: "Manage",
+    icon: Settings,
+    roles: [ROLE.OWNER],
   },
 ];
 
@@ -81,9 +94,12 @@ export default async function AppLayout({
             ))}
           </nav>
 
-          <span className="hidden text-[12px] text-white/70 sm:inline">
+          <Link
+            href="/app/settings"
+            className="hidden text-[12px] text-white/70 transition-colors hover:text-white sm:inline"
+          >
             {session.fullName}
-          </span>
+          </Link>
 
           <form action={logoutAction}>
             <button

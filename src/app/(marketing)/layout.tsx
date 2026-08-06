@@ -31,9 +31,15 @@ export default function MarketingLayout({
             </Link>
             <Link
               href="/login"
-              className="rounded-full bg-brand-900 px-4 py-1.5 text-[13px] font-semibold text-white hover:bg-brand-800"
+              className="rounded-full px-3 py-1.5 text-[13px] font-semibold text-gray-600 hover:bg-gray-100"
             >
               Sign in
+            </Link>
+            <Link
+              href="/signup"
+              className="rounded-full bg-brand-900 px-4 py-1.5 text-[13px] font-semibold text-white hover:bg-brand-800"
+            >
+              Create centre
             </Link>
           </nav>
         </div>

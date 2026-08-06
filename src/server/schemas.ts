@@ -19,11 +19,12 @@ import { z } from "zod";
 import {
   ATTENDANCE_STATUSES,
   HOMEWORK_STATUSES,
+  ROLE,
   type AttendanceStatus,
   type HomeworkStatus,
 } from "@/domain/enums";
 import { ValidationError } from "@/lib/errors";
-import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from "@/lib/auth/password";
+import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from "@/domain/password-policy";
 
 /** Largest batch we accept in a single save. Comfortably above any real class. */
 export const MAX_ROSTER_SIZE = 300;
@@ -149,6 +150,84 @@ export const logEngagementSchema = z.object({
 export const acknowledgeSchema = z.object({
   timelineEntryId: idSchema,
 });
+
+// ------------------------------------------------- registration & account --
+
+const nameSchema = z.string().trim().min(2, "Enter a full name").max(120);
+
+export const registerCentreSchema = z.object({
+  centreName: z.string().trim().min(2, "Enter your centre's name").max(120),
+  fullName: nameSchema,
+  email: z.string().trim().toLowerCase().email("Enter a valid email address"),
+  password: passwordSchema,
+});
+
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, "Enter your current password"),
+    newPassword: passwordSchema,
+    confirmPassword: z.string().min(1, "Confirm your new password"),
+  })
+  .refine((value) => value.newPassword === value.confirmPassword, {
+    path: ["confirmPassword"],
+    message: "Passwords do not match",
+  })
+  .refine((value) => value.newPassword !== value.currentPassword, {
+    path: ["newPassword"],
+    message: "Choose a password you have not used here before",
+  });
+
+// ------------------------------------------------------------ administration --
+
+export const createStaffSchema = z.object({
+  fullName: nameSchema,
+  email: z.string().trim().toLowerCase().email("Enter a valid email address"),
+  phone: z.string().trim().max(20).optional(),
+  role: z.enum([ROLE.TEACHER, ROLE.OWNER]),
+});
+
+export const createStudentSchema = z
+  .object({
+    fullName: nameSchema,
+    gradeLabel: z.string().trim().max(40).optional(),
+    batchId: idSchema.optional(),
+    guardianName: z.string().trim().max(120).optional(),
+    guardianEmail: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .email("Enter a valid guardian email")
+      .optional()
+      .or(z.literal("")),
+    guardianPhone: z.string().trim().max(20).optional(),
+  })
+  // A guardian email without a name would create an account nobody can identify
+  // in the centre's own staff list.
+  .refine(
+    (value) => !value.guardianEmail || Boolean(value.guardianName),
+    { path: ["guardianName"], message: "Add the guardian's name too" },
+  );
+
+export const createBatchSchema = z.object({
+  name: z.string().trim().min(2, "Name the batch").max(80),
+  subject: z.string().trim().min(2, "Enter the subject").max(60),
+  gradeLabel: z.string().trim().min(1, "Add a short label").max(20),
+  teacherId: idSchema,
+  colorHex: z
+    .string()
+    .trim()
+    .regex(/^#[0-9a-fA-F]{6}$/, "Use a colour like #7E57C2")
+    .optional(),
+});
+
+export const updateEnrollmentSchema = z.object({
+  batchId: idSchema,
+  studentId: idSchema,
+  enrolled: z.union([z.literal("true"), z.literal("false")]).transform((v) => v === "true"),
+});
+
+export const deactivateUserSchema = z.object({ userId: idSchema });
+export const deactivateStudentSchema = z.object({ studentId: idSchema });
 
 // ------------------------------------------------------------------ helpers
 
