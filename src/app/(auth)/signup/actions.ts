@@ -13,7 +13,10 @@
  */
 
 import { redirect } from "next/navigation";
-import { registerCentre } from "@/server/services/account.service";
+import {
+  registerCentre,
+  registerCentreWithGoogle,
+} from "@/server/services/account.service";
 import { runAction, type ActionState } from "@/server/action-result";
 
 export async function registerAction(
@@ -33,5 +36,23 @@ export async function registerAction(
   if (result.status !== "success") return result;
 
   // `redirect` throws internally, so it must run outside the wrapper above.
+  redirect("/app/admin/staff");
+}
+
+/** Create a centre from a verified Google identity plus a typed centre name. */
+export async function googleRegisterAction(
+  _previous: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const result = await runAction("centre.register_google", async () => {
+    await registerCentreWithGoogle({
+      centreName: formData.get("centreName"),
+      credential: formData.get("credential"),
+    });
+    return "registered";
+  });
+
+  if (result.status !== "success") return result;
+
   redirect("/app/admin/staff");
 }

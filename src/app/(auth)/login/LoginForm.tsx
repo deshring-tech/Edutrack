@@ -9,16 +9,24 @@
  */
 
 import { useActionState } from "react";
+import Link from "next/link";
 import { GraduationCap } from "lucide-react";
 import { FormError, SubmitButton } from "@/components/ui/Forms";
+import { GoogleAuthButton } from "@/components/auth/GoogleAuthButton";
 import { IDLE_ACTION_STATE } from "@/server/action-result";
 import { loginAction } from "./actions";
 
-export function LoginForm({ next }: { next?: string }) {
+interface LoginFormProps {
+  next?: string;
+  /** Null when Google Sign-In is not configured; the button then renders nothing. */
+  googleClientId: string | null;
+}
+
+export function LoginForm({ next, googleClientId }: LoginFormProps) {
   const [state, formAction] = useActionState(loginAction, IDLE_ACTION_STATE);
 
   return (
-    <form action={formAction} className="card w-full max-w-sm p-6 shadow-sm">
+    <div className="card w-full max-w-sm p-6 shadow-sm">
       <div className="mb-5 flex items-center gap-2">
         <div className="flex size-9 items-center justify-center rounded-xl bg-brand-900">
           <GraduationCap size={20} color="#fff" aria-hidden="true" />
@@ -29,9 +37,9 @@ export function LoginForm({ next }: { next?: string }) {
         </div>
       </div>
 
-      {next && <input type="hidden" name="next" value={next} />}
+      <form action={formAction} className="space-y-3">
+        {next && <input type="hidden" name="next" value={next} />}
 
-      <div className="space-y-3">
         <label className="block">
           <span className="text-[11px] font-semibold text-gray-500">Email</span>
           <input
@@ -62,7 +70,18 @@ export function LoginForm({ next }: { next?: string }) {
         <SubmitButton className="w-full" pendingLabel="Signing in…">
           Sign in
         </SubmitButton>
-      </div>
-    </form>
+      </form>
+
+      <p className="mt-2 text-right">
+        <Link
+          href="/forgot-password"
+          className="text-[12px] font-semibold text-brand-700 hover:underline"
+        >
+          Forgot your password?
+        </Link>
+      </p>
+
+      <GoogleAuthButton clientId={googleClientId} mode="signin" next={next} />
+    </div>
   );
 }

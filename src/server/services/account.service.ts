@@ -1,16 +1,22 @@
 /**
  * MODULE: Account lifecycle
  *
- * Purpose        Create a new centre, and let any signed-in user change their
- *                own password.
+ * Purpose        Create a new centre — with a password or with Google — and let
+ *                any signed-in user change their own password.
  * Responsibility Registration and self-service credential management.
- * Dependencies   db, password, session, schemas, audit service.
+ * Dependencies   db, password, google, session, rate-limit, schemas, audit.
  *
  * REGISTRATION CREATES A TENANT, NOT JUST A USER
  *  Signing up creates a Centre and its first OWNER in one transaction. There is
  *  no such thing as a user without a centre in this model — every query is
  *  scoped by `centreId`, so a user with no tenant could see nothing and would
  *  be a permanently broken account.
+ *
+ * THIS IS THE ONLY PLACE GOOGLE CAN CREATE AN ACCOUNT.
+ *  Signing *in* with Google never creates anything (see auth.service). Creating
+ *  a centre is a deliberate act with a name typed by a human, which is what
+ *  keeps a stray Gmail address from becoming an account somewhere it should not
+ *  exist.
  */
 
 import { db } from "@/lib/db";
@@ -18,47 +24,122 @@ import { logger } from "@/lib/logger";
 import { ConflictError, ValidationError } from "@/lib/errors";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { avatarColorFor, slugify } from "@/lib/auth/credentials";
+import { verifyGoogleIdToken } from "@/lib/auth/google";
 import { createSession, type SessionUser } from "@/lib/auth/session";
+import {
+  SIGNUP_RULE,
+  assertWithinLimit,
+  recordFailure,
+} from "@/lib/rate-limit";
 import { PLAN, ROLE } from "@/domain/enums";
 import {
   changePasswordSchema,
   parseOrThrow,
   registerCentreSchema,
+  registerCentreWithGoogleSchema,
 } from "../schemas";
 import { recordAudit } from "./audit.service";
 
 /** Seats included with a new centre during its trial. */
 const DEFAULT_SEAT_LIMIT = 150;
 
+/**
+ * Registration is public and unauthenticated, so it is bounded globally as well
+ * as per-address. Without this, one script can fill the database with tenants.
+ */
+const GLOBAL_SIGNUP_KEY = "signup:global";
+
 export interface RegisterResult {
   centreId: string;
   userId: string;
 }
 
-/**
- * Create a centre and sign its owner in.
- * The caller is anonymous by definition, so there is no session to authorise.
- */
+// -------------------------------------------------------- password signup --
+
 export async function registerCentre(rawInput: unknown): Promise<RegisterResult> {
   const input = parseOrThrow(registerCentreSchema, rawInput);
 
-  const existing = await db.user.findUnique({
-    where: { email: input.email },
-    select: { id: true },
-  });
-
-  // Reported as a validation error on the email field so it lands inline on the
-  // form, rather than as a bare "conflict" the user cannot act on.
-  if (existing) {
-    throw new ValidationError("An account with that email already exists.", {
-      email: ["That email is already registered — sign in instead"],
-    });
-  }
+  assertWithinLimit(GLOBAL_SIGNUP_KEY, SIGNUP_RULE);
+  await assertEmailAvailable(input.email);
 
   const passwordHash = await hashPassword(input.password);
+
+  const result = await createCentreWithOwner({
+    centreName: input.centreName,
+    fullName: input.fullName,
+    email: input.email,
+    passwordHash,
+    googleSub: null,
+  });
+
+  recordFailure(GLOBAL_SIGNUP_KEY, SIGNUP_RULE);
+
+  await createSession({
+    userId: result.userId,
+    centreId: result.centreId,
+    role: ROLE.OWNER,
+    fullName: input.fullName,
+    email: input.email,
+  });
+
+  logger.info("centre.registered", { centreId: result.centreId, method: "password" });
+  return result;
+}
+
+// ---------------------------------------------------------- google signup --
+
+/**
+ * Create a centre from a verified Google identity.
+ * The centre name still comes from the form — Google cannot tell us what the
+ * business is called, and an auto-generated name would be wrong forever.
+ */
+export async function registerCentreWithGoogle(
+  rawInput: unknown,
+): Promise<RegisterResult> {
+  const input = parseOrThrow(registerCentreWithGoogleSchema, rawInput);
+  assertWithinLimit(GLOBAL_SIGNUP_KEY, SIGNUP_RULE);
+
+  const identity = await verifyGoogleIdToken(input.credential);
+  await assertEmailAvailable(identity.email);
+
+  const result = await createCentreWithOwner({
+    centreName: input.centreName,
+    fullName: identity.fullName,
+    email: identity.email,
+    // No password is set. They can add one later from Settings if they want a
+    // second way in; until then Google is the only route, which is fine.
+    passwordHash: null,
+    googleSub: identity.subject,
+  });
+
+  recordFailure(GLOBAL_SIGNUP_KEY, SIGNUP_RULE);
+
+  await createSession({
+    userId: result.userId,
+    centreId: result.centreId,
+    role: ROLE.OWNER,
+    fullName: identity.fullName,
+    email: identity.email,
+  });
+
+  logger.info("centre.registered", { centreId: result.centreId, method: "google" });
+  return result;
+}
+
+// ------------------------------------------------------------------ shared --
+
+interface NewCentreOwner {
+  centreName: string;
+  fullName: string;
+  email: string;
+  passwordHash: string | null;
+  googleSub: string | null;
+}
+
+async function createCentreWithOwner(input: NewCentreOwner): Promise<RegisterResult> {
   const slug = await allocateSlug(slugify(input.centreName) || "centre");
 
-  const result = await db.$transaction(async (tx) => {
+  return db.$transaction(async (tx) => {
     const centre = await tx.centre.create({
       data: {
         name: input.centreName,
@@ -73,7 +154,8 @@ export async function registerCentre(rawInput: unknown): Promise<RegisterResult>
       data: {
         centreId: centre.id,
         email: input.email,
-        passwordHash,
+        passwordHash: input.passwordHash,
+        googleSub: input.googleSub,
         fullName: input.fullName,
         role: ROLE.OWNER,
         avatarColor: avatarColorFor(input.fullName),
@@ -90,22 +172,28 @@ export async function registerCentre(rawInput: unknown): Promise<RegisterResult>
       action: "centre.registered",
       targetType: "Centre",
       targetId: centre.id,
-      metadata: { centreName: input.centreName },
+      metadata: { centreName: input.centreName, google: Boolean(input.googleSub) },
     });
 
     return { centreId: centre.id, userId: user.id };
   });
+}
 
-  await createSession({
-    userId: result.userId,
-    centreId: result.centreId,
-    role: ROLE.OWNER,
-    fullName: input.fullName,
-    email: input.email,
+/**
+ * Reported as a validation error on the email field so it lands inline on the
+ * form, rather than as a bare "conflict" the user cannot act on.
+ */
+async function assertEmailAvailable(email: string): Promise<void> {
+  const existing = await db.user.findUnique({
+    where: { email },
+    select: { id: true },
   });
 
-  logger.info("centre.registered", { centreId: result.centreId });
-  return result;
+  if (existing) {
+    throw new ValidationError("An account with that email already exists.", {
+      email: ["That email is already registered — sign in instead"],
+    });
+  }
 }
 
 /**
@@ -126,6 +214,8 @@ async function allocateSlug(base: string): Promise<string> {
   return `${base}-${Date.now().toString(36)}`;
 }
 
+// -------------------------------------------------------- password change --
+
 /** Change your own password. Never anyone else's — that is a reset, not this. */
 export async function changeOwnPassword(
   session: SessionUser,
@@ -139,6 +229,15 @@ export async function changeOwnPassword(
   });
 
   if (!user) throw new ConflictError("Your account could not be loaded.");
+
+  // A Google-only account has no current password to prove. Sending them to the
+  // reset flow is the safe route: it proves control of the mailbox instead.
+  if (!user.passwordHash) {
+    throw new ValidationError(
+      "This account signs in with Google. Use “Forgot password” to set one.",
+      { currentPassword: ["No password is set for this account"] },
+    );
+  }
 
   const matches = await verifyPassword(input.currentPassword, user.passwordHash);
   if (!matches) {

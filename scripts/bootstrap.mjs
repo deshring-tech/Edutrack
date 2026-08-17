@@ -48,6 +48,15 @@ function createEnvFile() {
     'NOTIFICATION_CHANNEL="CONSOLE"',
     `CRON_SECRET="${secret(32)}"`,
     "",
+    "# Password-reset emails. CONSOLE prints them to this window, reset link",
+    "# included, so the flow works with no provider account.",
+    'EMAIL_CHANNEL="CONSOLE"',
+    "",
+    "# Google Sign-In is optional. Without it the button is simply not shown.",
+    "# Add an OAuth Client ID and list this app's origin under",
+    '# "Authorized JavaScript origins". There is no client secret to set.',
+    '# GOOGLE_CLIENT_ID="000000000000-xxxxxxxx.apps.googleusercontent.com"',
+    "",
   ].join("\n");
 
   writeFileSync(envPath, contents, { encoding: "utf8", flag: "wx" });

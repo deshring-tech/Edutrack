@@ -55,18 +55,27 @@ model Centre {
 // ----------------------------------------------------------------- people --
 
 model User {
-  id           String    @id @default(cuid())
-  centreId     String
-  email        String    @unique
-  passwordHash String
-  fullName     String
-  role         String // OWNER | TEACHER | PARENT — see domain/enums.ts
-  phone        String?
-  avatarColor  String    @default("#128C7E")
-  isActive     Boolean   @default(true)
-  lastLoginAt  DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id       String @id @default(cuid())
+  centreId String
+  email    String @unique
+
+  /// Null for accounts that sign in with Google only and have never set a
+  /// password. Every password comparison must handle that case.
+  passwordHash String?
+
+  /// Google's stable subject id. Preferred over email for matching, because a
+  /// Workspace address can be renamed or reassigned to a different person while
+  /// `sub` never changes.
+  googleSub String? @unique
+
+  fullName    String
+  role        String // OWNER | TEACHER | PARENT — see domain/enums.ts
+  phone       String?
+  avatarColor String    @default("#128C7E")
+  isActive    Boolean   @default(true)
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   centre Centre @relation(fields: [centreId], references: [id], onDelete: Cascade)
 
@@ -81,8 +90,28 @@ model User {
   timelineAcked      TimelineEntry[]      @relation("TimelineAcknowledger")
   notifications      NotificationOutbox[] @relation("NotificationRecipient")
   auditLogs          AuditLog[]           @relation("AuditActor")
+  passwordResets     PasswordResetToken[]
 
   @@index([centreId, role])
+}
+
+/// A single-use, expiring credential for setting a forgotten password.
+///
+/// Only the SHA-256 hash of the token is stored. A stolen database backup
+/// therefore yields nothing usable: the raw token exists only in the email that
+/// was sent and in the user's browser.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model Student {

@@ -10,7 +10,7 @@
 
 import { redirect } from "next/navigation";
 import { getSession, homePathFor } from "@/lib/auth/session";
-import { login, logout } from "@/server/services/auth.service";
+import { login, logout, signInWithGoogle } from "@/server/services/auth.service";
 import { runAction, type ActionState } from "@/server/action-result";
 
 /** Only same-origin paths are accepted, so `?next=` cannot become an open redirect. */
@@ -38,6 +38,28 @@ export async function loginAction(
   if (result.status !== "success" || !result.message) return result;
 
   // `redirect` throws internally, so it must run outside the try/catch above.
+  redirect(next ?? result.message);
+}
+
+/**
+ * Sign in with a Google ID token.
+ *
+ * Never creates an account: an unrecognised Google address is told to ask their
+ * centre. Registering a new centre with Google is a separate, deliberate flow.
+ */
+export async function googleSignInAction(
+  _previous: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const next = safeRedirectPath(formData.get("next"));
+
+  const result = await runAction("auth.google", async () => {
+    const user = await signInWithGoogle(formData.get("credential"));
+    return homePathFor(user.role);
+  });
+
+  if (result.status !== "success" || !result.message) return result;
+
   redirect(next ?? result.message);
 }
 

@@ -70,6 +70,10 @@ value fails the deploy rather than failing at 9am on a Monday.
 | `WHATSAPP_ACCESS_TOKEN` | if `WHATSAPP` | |
 | `WHATSAPP_TEMPLATE_NAME` | no | Default `edutrack_progress_update` |
 | `CRON_SECRET` | yes | ≥16 chars. Guards the dispatch endpoint. |
+| `GOOGLE_CLIENT_ID` | no | Enables Google Sign-In. No secret needed. |
+| `EMAIL_CHANNEL` | no | `CONSOLE` (default) \| `RESEND` |
+| `RESEND_API_KEY` | if `RESEND` | |
+| `EMAIL_FROM` | if `RESEND` | e.g. `EduTrack <no-reply@your-domain.in>` |
 
 Generate secrets:
 
@@ -123,7 +127,52 @@ Then schedule the dispatcher from system cron:
 
 ---
 
-## 4. Enabling WhatsApp
+## 4. Enabling Google Sign-In
+
+1. Open <https://console.cloud.google.com/apis/credentials>.
+2. **Create credentials → OAuth client ID → Web application.**
+3. Under **Authorized JavaScript origins**, add every origin the app is served
+   from — `http://localhost:3000` for local use and `https://your-domain.in` in
+   production. Google rejects the request from any origin not listed, which is
+   the single most common reason the button "does nothing".
+4. You do **not** need an authorized redirect URI. This is the Identity Services
+   flow, not an authorization-code exchange.
+5. Set `GOOGLE_CLIENT_ID` and redeploy.
+
+There is no client secret to configure. The Client ID is public by design — it
+ships in the page — and the server's audience check is what binds a token to
+this application.
+
+**Reusing a Client ID from another app** works, provided you add this app's
+origins to it. A separate client per application is better practice: consent
+screens, quotas and revocation are then independent, so turning one off cannot
+break the other.
+
+Leaving `GOOGLE_CLIENT_ID` unset is a supported state — the button is not
+rendered and email/password sign-in is unaffected.
+
+## 5. Enabling email (password reset)
+
+`EMAIL_CHANNEL=CONSOLE` prints emails to the server log, reset link included.
+That is genuinely usable for a solo pilot, but it means **nobody can reset their
+own password without you reading the log**, so configure a provider before real
+users depend on it.
+
+For Resend:
+
+1. Create an account and verify your sending domain (DNS records; allow time for
+   propagation).
+2. Create an API key.
+3. Set `EMAIL_CHANNEL=RESEND`, `RESEND_API_KEY` and `EMAIL_FROM`.
+
+`EMAIL_FROM` must use the verified domain. Sending from an unverified domain is
+the usual cause of silent non-delivery, and `env.ts` cannot catch that for you —
+watch for `email.failed` in the logs.
+
+Adding SES or Postmark means one more class in
+`src/server/email/adapters.ts` and one more case in `getEmailAdapter`.
+
+## 6. Enabling WhatsApp
 
 1. Create a Meta Business account and a WhatsApp Business app.
 2. Register a phone number and note its `phone_number_id`.
@@ -143,7 +192,7 @@ message and is the obvious first channel to add.
 
 ---
 
-## 5. Production checklist
+## 7. Production checklist
 
 - [ ] `SESSION_SECRET` and `CRON_SECRET` are freshly generated, not copied from `.env.example`
 - [ ] `NODE_ENV=production` (demo credentials are hidden from the login page only in production)
@@ -151,6 +200,8 @@ message and is the obvious first channel to add.
 - [ ] `npx prisma migrate deploy` has run
 - [ ] `APP_URL` is the real public origin
 - [ ] `NOTIFICATION_CHANNEL` is deliberate — leaving it `CONSOLE` means parents get nothing
+- [ ] `EMAIL_CHANNEL` is deliberate — leaving it `CONSOLE` means nobody can reset their own password
+- [ ] If Google Sign-In is enabled, the production origin is listed on the OAuth client
 - [ ] Cron is scheduled and `/api/cron/notifications` returns 200 with the secret and 401 without
 - [ ] `/api/health` returns 200 and shows a queue that is draining
 - [ ] Automated database backups are on
@@ -158,7 +209,7 @@ message and is the obvious first channel to add.
 
 ---
 
-## 6. Operating notes
+## 8. Operating notes
 
 **Health.** `GET /api/health` performs a real database round-trip and reports
 outbox depth. A check that only proves the process is alive will report healthy

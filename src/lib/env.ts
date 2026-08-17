@@ -63,6 +63,19 @@ const envSchema = z
     WHATSAPP_TEMPLATE_NAME: z.string().default("edutrack_progress_update"),
 
     CRON_SECRET: z.string().min(16, "CRON_SECRET must be at least 16 characters"),
+
+    /**
+     * Google Sign-In is optional. When this is absent the button is not
+     * rendered and the sign-in endpoint refuses — the app stays fully usable
+     * with passwords alone, so an unconfigured deploy degrades rather than
+     * breaks.
+     */
+    GOOGLE_CLIENT_ID: z.string().optional(),
+
+    EMAIL_CHANNEL: z.enum(["CONSOLE", "RESEND"]).default("CONSOLE"),
+    RESEND_API_KEY: z.string().optional(),
+    /** RFC 5322 sender, e.g. `EduTrack <no-reply@yourcentre.in>`. */
+    EMAIL_FROM: z.string().optional(),
   })
   // Channel-specific requirements are checked here rather than at send time,
   // so a misconfigured channel can never reach production silently.
@@ -76,6 +89,23 @@ const envSchema = z
         path: ["NOTIFICATION_WEBHOOK_URL"],
         message: "Required when NOTIFICATION_CHANNEL=WEBHOOK",
       });
+    }
+
+    if (value.EMAIL_CHANNEL === "RESEND") {
+      if (!value.RESEND_API_KEY) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["RESEND_API_KEY"],
+          message: "Required when EMAIL_CHANNEL=RESEND",
+        });
+      }
+      if (!value.EMAIL_FROM) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["EMAIL_FROM"],
+          message: "Required when EMAIL_CHANNEL=RESEND",
+        });
+      }
     }
 
     if (value.NOTIFICATION_CHANNEL === NOTIFICATION_CHANNEL.WHATSAPP) {

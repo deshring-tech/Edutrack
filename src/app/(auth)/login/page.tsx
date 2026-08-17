@@ -8,6 +8,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { isProduction } from "@/lib/env";
+import { googleClientId } from "@/lib/auth/google";
 import { LoginForm } from "./LoginForm";
 
 export const metadata: Metadata = { title: "Sign in" };
@@ -24,7 +25,8 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
       id="main"
       className="flex min-h-screen flex-col items-center justify-center gap-4 px-4 py-10"
     >
-      <LoginForm next={next} />
+      {/* Read on the server so the Client ID never needs a NEXT_PUBLIC_ twin. */}
+      <LoginForm next={next} googleClientId={googleClientId()} />
 
       {/* Demo accounts are never rendered in a production build. */}
       {!isProduction && (

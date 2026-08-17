@@ -12,13 +12,15 @@ import { GraduationCap } from "lucide-react";
 import { ActionBanner, FieldError, SubmitButton } from "@/components/ui/Forms";
 import { IDLE_ACTION_STATE } from "@/server/action-result";
 import { PASSWORD_MIN_LENGTH } from "@/domain/password-policy";
+import { GoogleAuthButton } from "@/components/auth/GoogleAuthButton";
 import { registerAction } from "./actions";
 
-export function SignupForm() {
+/** Null when Google Sign-In is not configured; the button then renders nothing. */
+export function SignupForm({ googleClientId }: { googleClientId: string | null }) {
   const [state, submit] = useActionState(registerAction, IDLE_ACTION_STATE);
 
   return (
-    <form action={submit} className="card w-full max-w-sm p-6 shadow-sm">
+    <div className="card w-full max-w-sm p-6 shadow-sm">
       <div className="mb-5 flex items-center gap-2">
         <div className="flex size-9 items-center justify-center rounded-xl bg-brand-900">
           <GraduationCap size={20} color="#fff" aria-hidden="true" />
@@ -29,7 +31,7 @@ export function SignupForm() {
         </div>
       </div>
 
-      <div className="space-y-3">
+      <form action={submit} className="space-y-3">
         <label className="block">
           <span className="text-[11px] font-semibold text-gray-500">Centre name</span>
           <input
@@ -90,7 +92,10 @@ export function SignupForm() {
         <SubmitButton className="w-full" pendingLabel="Creating…">
           Create centre
         </SubmitButton>
-      </div>
-    </form>
+      </form>
+
+      {/* Reads the centre name from the field above, so it must stay rendered. */}
+      <GoogleAuthButton clientId={googleClientId} mode="signup" />
+    </div>
   );
 }

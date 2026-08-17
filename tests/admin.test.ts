@@ -28,6 +28,7 @@ import {
   setStudentActive,
 } from "@/server/services/admin.service";
 import { changeOwnPassword } from "@/server/services/account.service";
+import { deleteCentreDeep } from "./helpers/cleanup";
 
 const RUN_ID = Math.random().toString(36).slice(2, 8);
 const CENTRE_ID = `centre_test_${RUN_ID}`;
@@ -89,7 +90,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await db.centre.delete({ where: { id: CENTRE_ID } }).catch(() => undefined);
+  // Deliberately NOT wrapped in a catch: if cleanup fails the suite must say
+  // so, rather than quietly leaving a tenant behind in the database.
+  await deleteCentreDeep(CENTRE_ID);
 });
 
 describe("role gate", () => {
@@ -123,9 +126,12 @@ describe("staff", () => {
       where: { email: account.email },
       select: { passwordHash: true },
     });
+    // `passwordHash` is nullable since Google-only accounts exist; a staff
+    // account created with a temporary password must always have one.
+    expect(created.passwordHash).toBeTruthy();
     expect(created.passwordHash).not.toContain(account.temporaryPassword);
     await expect(
-      verifyPassword(account.temporaryPassword, created.passwordHash),
+      verifyPassword(account.temporaryPassword, created.passwordHash ?? ""),
     ).resolves.toBe(true);
   });
 
@@ -284,7 +290,12 @@ describe("changeOwnPassword", () => {
       select: { passwordHash: true },
     });
 
-    await expect(verifyPassword(nextPassword, updated.passwordHash)).resolves.toBe(true);
-    await expect(verifyPassword(OWNER_PASSWORD, updated.passwordHash)).resolves.toBe(false);
+    expect(updated.passwordHash).toBeTruthy();
+    await expect(
+      verifyPassword(nextPassword, updated.passwordHash ?? ""),
+    ).resolves.toBe(true);
+    await expect(
+      verifyPassword(OWNER_PASSWORD, updated.passwordHash ?? ""),
+    ).resolves.toBe(false);
   });
 });

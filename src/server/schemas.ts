@@ -177,6 +177,34 @@ export const changePasswordSchema = z
     message: "Choose a password you have not used here before",
   });
 
+export const forgotPasswordSchema = z.object({
+  email: z.string().trim().toLowerCase().email("Enter a valid email address"),
+});
+
+export const resetPasswordSchema = z
+  .object({
+    token: z.string().trim().min(20, "That reset link is not valid").max(200),
+    newPassword: passwordSchema,
+    confirmPassword: z.string().min(1, "Confirm your new password"),
+  })
+  .refine((value) => value.newPassword === value.confirmPassword, {
+    path: ["confirmPassword"],
+    message: "Passwords do not match",
+  });
+
+/** The ID token the Google widget hands back to the browser. */
+export const googleCredentialSchema = z.object({
+  credential: z.string().min(20, "Google sign-in did not return a token"),
+});
+
+/**
+ * Registering with Google still needs a centre name: Google can tell us who the
+ * person is, but not what their business is called.
+ */
+export const registerCentreWithGoogleSchema = googleCredentialSchema.extend({
+  centreName: z.string().trim().min(2, "Enter your centre's name").max(120),
+});
+
 // ------------------------------------------------------------ administration --
 
 export const createStaffSchema = z.object({

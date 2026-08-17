@@ -130,6 +130,32 @@ changed, so fixing one student's mark does not re-notify the other twenty-one.
 **Deliverable.** The transactional outbox means a messaging outage delays
 notifications rather than losing them.
 
+### Signing in
+
+Three routes in, all landing on the same session cookie:
+
+| Route | Notes |
+|---|---|
+| Email + password | scrypt hashed, throttled per address, uniform timing so a missing account is indistinguishable from a wrong password |
+| Google Sign-In | Optional. Verifies Google's ID token against Google's public keys. Matches on Google's immutable `sub` first, then a *verified* email |
+| Password reset | Single-use token, hashed at rest, one hour to live, enumeration-safe |
+
+**Google is a sign-in method, not a sign-up method.** Signing in with Google
+never creates a teacher or parent account — membership of a centre is granted by
+its owner, so an unrecognised Google address is told to ask their centre.
+Creating a *new centre* with Google is a separate, deliberate flow on `/signup`
+that still requires a typed centre name, because Google cannot tell us what the
+business is called.
+
+Accounts created through Google have no password (`passwordHash` is nullable).
+They can set one at any time via **Forgot password**, which proves control of
+the mailbox — so both routes then work.
+
+There is **no Google client secret**. This is the Identity Services flow: the
+browser obtains an ID token and the server verifies its signature and audience.
+The audience check is what stops a valid Google token minted for someone else's
+app from being accepted here.
+
 ### Authorization
 
 `src/lib/auth/rbac.ts` is the only module that decides access. Every service and
@@ -183,12 +209,15 @@ schedule `GET /api/cron/notifications` with a `Bearer $CRON_SECRET` header.
 npm test
 ```
 
-104 tests covering the domain layer and the security-critical primitives —
+115 tests covering the domain layer and the security-critical primitives —
 metrics, risk rules, message composition, date keys, password hashing, the
-authorization boundaries, and the administration rules (seat limits, email
-uniqueness, role gates, password change). The last two groups run against a real
-database; the administration suite creates its own throwaway centre and deletes
-it afterwards, so it leaves no trace.
+authorization boundaries, the administration rules (seat limits, email
+uniqueness, role gates, password change) and password reset (single use, expiry,
+enumeration safety, password-less accounts).
+
+The database-backed suites each create their own throwaway centre and delete it
+in `afterAll` via `tests/helpers/cleanup.ts` — deliberately without a `catch`, so
+a cleanup failure fails the run instead of quietly leaving a tenant behind.
 
 The suite deliberately targets the places where a regression is silent. A wrong
 percentage looks plausible; a broken authorization rule looks like nothing at
@@ -220,12 +249,19 @@ Deliberately **not** built yet, and why:
 - **File uploads.** Assignments record an attachment *name*. Storing files for
   minors needs a retention policy, scanning and signed URLs — worth building,
   not worth faking.
-- **Email.** There is no transactional email, so staff and guardian accounts are
-  created with a generated temporary password the owner hands over. Invite links
-  and password reset both need email first.
+- **Email invites.** Password reset works, but staff and guardian accounts are
+  still created with a generated temporary password the owner hands over. Turning
+  that into an invite link is a small change now that email exists.
+- **Email verification.** A new centre's address is not verified, so `/signup`
+  is rate limited rather than gated. Fine while the URL is not public.
 - **Session revocation.** Sessions are stateless JWTs and cannot be revoked
   before expiry. Adding a `sessionVersion` column to `User` and asserting it in
   `getSession` is the fix; no call site changes.
+- **Deleting a centre.** Records can be deactivated but a tenant cannot be
+  erased. `tests/helpers/cleanup.ts` shows the required delete ordering and is
+  the starting point for the DPDP erasure routine.
+- **Timeline paging.** A student's feed loads the most recent 50 entries with no
+  "load more", so older history is not reachable from the UI yet.
 - **Editing after creation.** Students, staff and batches can be created and
   deactivated, but not renamed. Straightforward to add; not yet needed to run a
   centre end to end.
