@@ -1,27 +1,46 @@
 name: Dispatch notifications
 
-# WHY THIS EXISTS ALONGSIDE vercel.json
+# WHY THIS EXISTS
 #  Vercel's Hobby plan allows cron only once per day, which is useless for
-#  telling a parent their child was absent this morning. This workflow polls the
-#  same endpoint every ten minutes for free. The daily Vercel cron stays as a
-#  backstop in case this workflow is disabled.
+#  telling a parent their child was absent this morning. This workflow calls the
+#  same endpoint on demand, and can be put on a schedule.
 #
-#  On Vercel Pro, delete this file and change vercel.json to "*/2 * * * *" —
-#  platform cron is more punctual than GitHub's scheduler, which can run several
-#  minutes late under load.
+# THE SCHEDULE IS DELIBERATELY OFF BY DEFAULT — READ BEFORE ENABLING
+#  GitHub bills Actions on PRIVATE repositories per minute, rounded UP per job.
+#  A run every 10 minutes is 144 jobs/day, which rounds to ~4,300 minutes a
+#  month against a 2,000-minute free allowance. It would quietly exhaust the
+#  allowance and start costing money, with CI competing for what is left.
+#
+#  Pick one:
+#
+#  1. RECOMMENDED — an external HTTP cron service (cron-job.org, EasyCron,
+#     Cloudflare Workers Cron). Free, minute-level granularity, consumes no
+#     Actions minutes. Point it at:
+#         GET  https://your-app.vercel.app/api/cron/notifications
+#         Header: Authorization: Bearer <CRON_SECRET>
+#
+#  2. Vercel Pro — set vercel.json to "*/2 * * * *" and use platform cron. One
+#     scheduler, more punctual than GitHub's.
+#
+#  3. This workflow on a schedule — uncomment the `schedule` block below. Keep
+#     the interval at 30 minutes or longer, and watch your Actions usage under
+#     Settings -> Billing.
+#
+#  Do NOT run two schedulers at once. The outbox claims rows with a
+#  read-then-update, which is only safe for a single dispatcher.
 #
 # REQUIRED REPOSITORY SECRETS (Settings -> Secrets and variables -> Actions):
 #   APP_URL      https://your-deployment.vercel.app
 #   CRON_SECRET  the same value set in the deployment's environment
 
 on:
-  schedule:
-    - cron: "*/10 * * * *"
-  # Lets you flush the queue by hand from the Actions tab when debugging.
+  # schedule:
+  #   - cron: "*/30 * * * *"
+
+  # Flush the queue by hand from the Actions tab — useful for debugging, and
+  # the only trigger enabled by default.
   workflow_dispatch:
 
-# Never let two dispatch runs overlap: the outbox claims rows with a
-# read-then-update, which is only safe for a single dispatcher.
 concurrency:
   group: dispatch-notifications
   cancel-in-progress: false

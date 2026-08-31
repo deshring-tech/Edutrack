@@ -113,22 +113,36 @@ npx prisma migrate deploy
 preference: Vercel's Hobby plan permits cron only once per day, and a daily
 flush is useless for telling a parent their child was absent this morning.
 
-So the repository also ships `.github/workflows/notifications.yml`, which calls
-the same endpoint every ten minutes from GitHub Actions, free. Set two
-repository secrets under **Settings → Secrets and variables → Actions**:
+You need a second scheduler. Three options, in the order I would pick them:
 
-| Secret | Value |
-|---|---|
-| `APP_URL` | `https://your-deployment.vercel.app` |
-| `CRON_SECRET` | the same value as in the Vercel environment |
+**1. An external HTTP cron service — recommended for a pilot.** cron-job.org,
+EasyCron or a Cloudflare Worker cron. Free, minute-level granularity, and it
+costs you nothing on any platform. Point it at:
 
-The workflow skips harmlessly if either is missing, so nothing breaks before you
-set them. GitHub's scheduler can run several minutes late under load — fine for
-a pilot, not for an SLA.
+```
+GET https://your-app.vercel.app/api/cron/notifications
+Header: Authorization: Bearer <CRON_SECRET>
+```
 
-**On Vercel Pro**, delete that workflow and change `vercel.json` to
-`"*/2 * * * *"`. Platform cron is more punctual, and one scheduler is simpler
-than two.
+**2. Vercel Pro.** Change `vercel.json` to `"*/2 * * * *"`. One scheduler,
+punctual, no third party.
+
+**3. GitHub Actions.** `.github/workflows/notifications.yml` is committed and
+does exactly this, but its schedule is **commented out on purpose**. GitHub
+bills Actions on *private* repositories per minute, rounded up per job: a run
+every ten minutes is ~4,300 minutes a month against a 2,000-minute free
+allowance. It would silently exhaust the allowance and start costing money, with
+CI competing for what is left. If you use it anyway, keep the interval at 30
+minutes or more and watch **Settings → Billing**.
+
+For any of these, set `APP_URL` and `CRON_SECRET` as repository secrets under
+**Settings → Secrets and variables → Actions** if you use the workflow, or in
+the cron service's own configuration otherwise. The workflow can always be run
+by hand from the Actions tab, which is the quickest way to flush the queue while
+debugging.
+
+**Never run two schedulers at once.** The outbox claims rows with a
+read-then-update, which is only safe for a single dispatcher.
 
 ### Any Node host (Render, Railway, Fly, a VPS)
 
