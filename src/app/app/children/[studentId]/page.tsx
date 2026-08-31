@@ -20,23 +20,26 @@ import { getStudentProfile } from "@/server/services/student.service";
 import { Avatar } from "@/components/ui/Avatar";
 import { ProgressPanel } from "@/components/student/ProgressPanel";
 import { Timeline } from "@/components/student/Timeline";
+import { TimelinePager } from "@/components/student/TimelinePager";
 import { AcknowledgeAllButton } from "./AcknowledgeAllButton";
 
 export const metadata: Metadata = { title: "My child" };
 
 interface ChildPageProps {
   params: Promise<{ studentId: string }>;
+  searchParams: Promise<{ before?: string }>;
 }
 
-export default async function ChildPage({ params }: ChildPageProps) {
+export default async function ChildPage({ params, searchParams }: ChildPageProps) {
   const { studentId } = await params;
+  const { before } = await searchParams;
   const session = await requireSession();
 
   // A student who is not this parent's child resolves to the not-found page,
   // never to an error screen and never to another family's record.
   const profile = await loadPage(async () => {
     requireParent(session);
-    return getStudentProfile(session, studentId);
+    return getStudentProfile(session, studentId, { before });
   });
 
   return (
@@ -81,7 +84,13 @@ export default async function ChildPage({ params }: ChildPageProps) {
           </p>
         </div>
 
-        <Timeline entries={profile.timeline} audience="parent" />
+        <div className="space-y-2">
+          <Timeline entries={profile.timeline.items} audience="parent" />
+          <TimelinePager
+            page={profile.timeline}
+            basePath={`/app/children/${profile.id}`}
+          />
+        </div>
       </div>
     </>
   );

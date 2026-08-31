@@ -3,37 +3,46 @@
 ## 1. Switch SQLite → PostgreSQL
 
 Local development uses SQLite so the project runs with zero infrastructure.
-Production should use PostgreSQL: concurrent writes from several teachers
-marking registers at 6pm is exactly the workload SQLite handles worst.
+Production must use PostgreSQL: several teachers marking registers at 6pm is
+concurrent-write traffic, which is exactly what SQLite handles worst.
 
-The switch is two edits and a fresh migration.
+**a. Create the database.** Neon is the easiest — free tier, no card, and it
+gives you both a pooled and a direct connection string, which is what a
+serverless deployment needs. Supabase, Railway and Render all work too.
 
-**a. Change the provider** in `prisma/schema.prisma`:
-
-```prisma
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-```
-
-**b. Point `DATABASE_URL` at Postgres:**
+**b. Run the switch:**
 
 ```bash
-DATABASE_URL="postgresql://user:password@host:5432/edutrack?sslmode=require"
+npm run db:use-postgres
 ```
 
-Managed options that need no server administration: Neon, Supabase, Railway,
-Render. All have a usable free tier for a pilot.
+That rewrites the `datasource` block to PostgreSQL (adding `directUrl`) and
+deletes the SQLite migration history, which cannot replay against Postgres.
+It refuses to run twice, so it can never wipe real migration history.
 
-**c. Create the migration.** The existing SQLite migration cannot be replayed
-against Postgres, so generate a fresh initial migration:
+**c. Set both connection strings** in `.env` and in your host's environment:
 
 ```bash
-rm -rf prisma/migrations
+DATABASE_URL="postgresql://user:pass@host/db?sslmode=require"   # pooled
+DIRECT_URL="postgresql://user:pass@host/db?sslmode=require"     # direct
+```
+
+`DATABASE_URL` is used by the running app and should be the **pooled** endpoint:
+serverless functions open a connection per invocation and exhaust a direct
+Postgres connection limit fast. `DIRECT_URL` is used only by migrations, which
+cannot run through a transaction pooler. If your provider has no pooler, set
+both to the same value.
+
+**d. Create the migration and optionally seed:**
+
+```bash
 npx prisma migrate dev --name init
 npm run db:seed          # optional — demo data
 ```
+
+After this, **local development uses that same Postgres database** — SQLite is
+no longer involved. On Neon, create a separate branch for development so local
+work cannot touch pilot data.
 
 ### What the switch does and does not change
 
@@ -59,7 +68,8 @@ value fails the deploy rather than failing at 9am on a Monday.
 
 | Variable | Required | Notes |
 |---|---|---|
-| `DATABASE_URL` | yes | Postgres connection string |
+| `DATABASE_URL` | yes | Postgres **pooled** connection string |
+| `DIRECT_URL` | yes (Postgres) | **Direct** connection string, used by migrations only |
 | `SESSION_SECRET` | yes | ≥32 chars. Rotating it signs everyone out. |
 | `SESSION_TTL_HOURS` | no | Default 720 (30 days) |
 | `APP_URL` | yes | Public origin; used to build parent deep links |
@@ -87,25 +97,38 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 
 ### Vercel
 
-Connect the repository and set the environment variables above. Build and start
-commands are picked up from `package.json`.
+Import the GitHub repository and set the environment variables above. Next.js is
+detected automatically; `npm run build` already runs `prisma generate` first, so
+no build-command override is needed.
 
-Add `vercel.json` for the notification dispatcher:
-
-```json
-{
-  "crons": [
-    { "path": "/api/cron/notifications", "schedule": "*/2 * * * *" }
-  ]
-}
-```
-
-Vercel sends the cron request with the project's `CRON_SECRET` as a bearer
-token. Run migrations against production explicitly:
+Run the first migration against production yourself:
 
 ```bash
 npx prisma migrate deploy
 ```
+
+**Notification scheduling — read this before relying on it.**
+
+`vercel.json` is committed with a single **daily** cron. That is not a
+preference: Vercel's Hobby plan permits cron only once per day, and a daily
+flush is useless for telling a parent their child was absent this morning.
+
+So the repository also ships `.github/workflows/notifications.yml`, which calls
+the same endpoint every ten minutes from GitHub Actions, free. Set two
+repository secrets under **Settings → Secrets and variables → Actions**:
+
+| Secret | Value |
+|---|---|
+| `APP_URL` | `https://your-deployment.vercel.app` |
+| `CRON_SECRET` | the same value as in the Vercel environment |
+
+The workflow skips harmlessly if either is missing, so nothing breaks before you
+set them. GitHub's scheduler can run several minutes late under load — fine for
+a pilot, not for an SLA.
+
+**On Vercel Pro**, delete that workflow and change `vercel.json` to
+`"*/2 * * * *"`. Platform cron is more punctual, and one scheduler is simpler
+than two.
 
 ### Any Node host (Render, Railway, Fly, a VPS)
 
@@ -196,8 +219,12 @@ message and is the obvious first channel to add.
 
 - [ ] `SESSION_SECRET` and `CRON_SECRET` are freshly generated, not copied from `.env.example`
 - [ ] `NODE_ENV=production` (demo credentials are hidden from the login page only in production)
-- [ ] `DATABASE_URL` points at Postgres, with TLS
+- [ ] `DATABASE_URL` points at the **pooled** Postgres endpoint, with TLS
+- [ ] `DIRECT_URL` points at the **direct** endpoint (migrations need it)
 - [ ] `npx prisma migrate deploy` has run
+- [ ] Notification scheduling is actually wired — either the GitHub Actions
+      secrets are set, or you are on Vercel Pro with a frequent cron. A daily
+      flush alone means parents hear about today's absence tomorrow
 - [ ] `APP_URL` is the real public origin
 - [ ] `NOTIFICATION_CHANNEL` is deliberate — leaving it `CONSOLE` means parents get nothing
 - [ ] `EMAIL_CHANNEL` is deliberate — leaving it `CONSOLE` means nobody can reset their own password

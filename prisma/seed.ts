@@ -38,8 +38,16 @@ const db = new PrismaClient();
 const CENTRE_ID = "centre_brightminds";
 const DEMO_PASSWORD = "demo-password-123";
 
-/** How many past weekdays of history to generate. */
-const HISTORY_DAYS = 24;
+/**
+ * How many past weekdays of history to generate.
+ *
+ * Each day is a real transaction per batch through the production write path,
+ * which is the point — but it also means the seed costs roughly a second per
+ * day per batch. CI only needs enough history for the authorization tests to
+ * have something to read, so it sets SEED_HISTORY_DAYS low and finishes in
+ * seconds instead of minutes.
+ */
+const HISTORY_DAYS = Math.max(1, Number(process.env.SEED_HISTORY_DAYS ?? 24));
 
 // ---------------------------------------------------------------- fixtures --
 

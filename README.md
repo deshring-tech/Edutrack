@@ -62,6 +62,7 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 | `npm run db:migrate` | Create and apply a migration |
 | `npm run db:seed` | Populate a realistic demo centre |
 | `npm run db:reset` | Drop, re-migrate and re-seed |
+| `npm run db:use-postgres` | One-time switch from SQLite to PostgreSQL for deployment |
 | `npm run db:studio` | Browse the database |
 | `npm run notifications:dispatch` | Drain the notification outbox once |
 
@@ -260,8 +261,6 @@ Deliberately **not** built yet, and why:
 - **Deleting a centre.** Records can be deactivated but a tenant cannot be
   erased. `tests/helpers/cleanup.ts` shows the required delete ordering and is
   the starting point for the DPDP erasure routine.
-- **Timeline paging.** A student's feed loads the most recent 50 entries with no
-  "load more", so older history is not reachable from the UI yet.
 - **Editing after creation.** Students, staff and batches can be created and
   deactivated, but not renamed. Straightforward to add; not yet needed to run a
   centre end to end.

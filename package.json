@@ -21,6 +21,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "prisma migrate reset --force --skip-seed && npm run db:seed",
     "db:studio": "prisma studio",
+    "db:use-postgres": "node scripts/use-postgres.mjs",
     "notifications:dispatch": "tsx scripts/dispatch-notifications.ts",
     "postinstall": "prisma generate"
   },

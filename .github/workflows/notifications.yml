@@ -1,0 +1,49 @@
+name: Dispatch notifications
+
+# WHY THIS EXISTS ALONGSIDE vercel.json
+#  Vercel's Hobby plan allows cron only once per day, which is useless for
+#  telling a parent their child was absent this morning. This workflow polls the
+#  same endpoint every ten minutes for free. The daily Vercel cron stays as a
+#  backstop in case this workflow is disabled.
+#
+#  On Vercel Pro, delete this file and change vercel.json to "*/2 * * * *" —
+#  platform cron is more punctual than GitHub's scheduler, which can run several
+#  minutes late under load.
+#
+# REQUIRED REPOSITORY SECRETS (Settings -> Secrets and variables -> Actions):
+#   APP_URL      https://your-deployment.vercel.app
+#   CRON_SECRET  the same value set in the deployment's environment
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  # Lets you flush the queue by hand from the Actions tab when debugging.
+  workflow_dispatch:
+
+# Never let two dispatch runs overlap: the outbox claims rows with a
+# read-then-update, which is only safe for a single dispatcher.
+concurrency:
+  group: dispatch-notifications
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Drain the notification outbox
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "APP_URL or CRON_SECRET is not set — skipping."
+            echo "Add them under Settings > Secrets and variables > Actions."
+            exit 0
+          fi
+
+          # --fail-with-body so a non-2xx exits non-zero AND still prints the
+          # body, which is what tells you whether it was auth or the app.
+          curl --silent --show-error --fail-with-body \
+            --max-time 120 \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            "$APP_URL/api/cron/notifications"

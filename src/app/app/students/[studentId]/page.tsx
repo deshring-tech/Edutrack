@@ -19,21 +19,27 @@ import { getStudentProfile } from "@/server/services/student.service";
 import { Avatar } from "@/components/ui/Avatar";
 import { ProgressPanel } from "@/components/student/ProgressPanel";
 import { Timeline } from "@/components/student/Timeline";
+import { TimelinePager } from "@/components/student/TimelinePager";
 import { TeacherComposer } from "./TeacherComposer";
 
 export const metadata: Metadata = { title: "Student" };
 
 interface StudentPageProps {
   params: Promise<{ studentId: string }>;
+  searchParams: Promise<{ before?: string }>;
 }
 
-export default async function StudentPage({ params }: StudentPageProps) {
+export default async function StudentPage({
+  params,
+  searchParams,
+}: StudentPageProps) {
   const { studentId } = await params;
+  const { before } = await searchParams;
   const session = await requireSession();
 
   const profile = await loadPage(async () => {
     requireStaff(session);
-    return getStudentProfile(session, studentId);
+    return getStudentProfile(session, studentId, { before });
   });
 
   return (
@@ -58,7 +64,11 @@ export default async function StudentPage({ params }: StudentPageProps) {
 
       <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-3">
-          <Timeline entries={profile.timeline} audience="staff" />
+          <Timeline entries={profile.timeline.items} audience="staff" />
+          <TimelinePager
+            page={profile.timeline}
+            basePath={`/app/students/${profile.id}`}
+          />
         </div>
 
         <div className="space-y-3">

@@ -24,6 +24,10 @@ jobs:
       CRON_SECRET: ci-cron-secret-long-enough
       APP_URL: http://localhost:3000
       NOTIFICATION_CHANNEL: CONSOLE
+      EMAIL_CHANNEL: CONSOLE
+      # The suite needs data to exist, not a full term of it. Four weekdays
+      # keeps the seed to seconds; 24 would add minutes to every run.
+      SEED_HISTORY_DAYS: 4
 
     steps:
       - uses: actions/checkout@v4

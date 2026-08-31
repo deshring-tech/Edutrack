@@ -22,6 +22,15 @@ import { getProgress, type StudentProgress } from "./progress.service";
 /** One page of timeline. Deep history is reachable by paging, not by loading. */
 export const TIMELINE_PAGE_SIZE = 50;
 
+export interface TimelinePage {
+  /** Oldest-first, ready to render as a thread. */
+  items: TimelineItem[];
+  /** Cursor for the next, older page — null when this is the last one. */
+  olderCursor: string | null;
+  /** True when `before` was supplied, i.e. we are not on the newest page. */
+  isHistoric: boolean;
+}
+
 export interface TimelineItem {
   id: string;
   kind: TimelineKind;
@@ -42,17 +51,32 @@ export interface StudentProfile {
   progress: StudentProgress;
   /** How this child compares with their batch on homework completion. */
   homeworkVsBatch: PeerComparison | null;
-  timeline: TimelineItem[];
+  timeline: TimelinePage;
   unacknowledgedCount: number;
   guardianNames: string[];
+}
+
+export interface StudentProfileOptions {
+  /** Entries per page. */
+  limit?: number;
+  /**
+   * Id of the oldest entry already seen. The next page starts immediately
+   * before it.
+   *
+   * A cursor rather than an offset: entries are added while a parent reads, and
+   * `skip: 50` would silently shift the window under them — showing some
+   * entries twice and hiding others entirely.
+   */
+  before?: string;
 }
 
 export async function getStudentProfile(
   session: SessionUser,
   studentId: string,
-  timelineLimit: number = TIMELINE_PAGE_SIZE,
+  options: StudentProfileOptions = {},
 ): Promise<StudentProfile> {
   const student = await requireStudentAccess(session, studentId);
+  const limit = options.limit ?? TIMELINE_PAGE_SIZE;
 
   const [enrollment, progress, timelineRows, unacknowledgedCount, guardians] =
     await Promise.all([
@@ -73,8 +97,16 @@ export async function getStudentProfile(
           author: { select: { fullName: true } },
           batch: { select: { name: true } },
         },
-        orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
-        take: timelineLimit,
+        // `id` is the tie-breaker so the order is total: two entries saved in
+        // the same batch share an `occurredAt`, and cursor paging needs a
+        // deterministic sequence or it can skip or repeat rows.
+        orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
+        // One extra row reveals whether an older page exists, without a
+        // second count query.
+        take: limit + 1,
+        ...(options.before
+          ? { cursor: { id: options.before }, skip: 1 }
+          : {}),
       }),
       db.timelineEntry.count({
         where: { studentId: student.id, acknowledgedAt: null },
@@ -88,6 +120,11 @@ export async function getStudentProfile(
   const batchId = enrollment?.batch.id ?? null;
   const batchStats = batchId ? await getBatchStats([batchId]) : null;
 
+  // Trim the probe row back off before anything renders it.
+  const hasOlder = timelineRows.length > limit;
+  const pageRows = hasOlder ? timelineRows.slice(0, limit) : timelineRows;
+  const oldestRow = pageRows[pageRows.length - 1];
+
   return {
     id: student.id,
     fullName: student.fullName,
@@ -100,16 +137,21 @@ export async function getStudentProfile(
       progress.homework.ratePercent,
       batchId ? (batchStats?.get(batchId)?.homeworkPercent ?? null) : null,
     ),
-    // Oldest-first for reading, like a chat thread.
-    timeline: timelineRows.reverse().map((row) => ({
-      id: row.id,
-      kind: row.kind as TimelineKind,
-      body: row.body,
-      occurredAt: row.occurredAt,
-      authorName: row.author.fullName,
-      batchName: row.batch?.name ?? null,
-      acknowledgedAt: row.acknowledgedAt,
-    })),
+    timeline: {
+      // Reversed to oldest-first for reading, like a chat thread. The cursor is
+      // taken before this flip, from the genuinely oldest row.
+      items: [...pageRows].reverse().map((row) => ({
+        id: row.id,
+        kind: row.kind as TimelineKind,
+        body: row.body,
+        occurredAt: row.occurredAt,
+        authorName: row.author.fullName,
+        batchName: row.batch?.name ?? null,
+        acknowledgedAt: row.acknowledgedAt,
+      })),
+      olderCursor: hasOlder && oldestRow ? oldestRow.id : null,
+      isHistoric: Boolean(options.before),
+    },
     unacknowledgedCount,
     guardianNames: guardians.map((link) => link.parent.fullName),
   };
